@@ -31,18 +31,11 @@ fastify.get('/callback', async (request, reply) => {
         token,
     };
 
-    const signatureBase = Object.keys(params)
-        .sort()
-        .map((key) => key + params[key])
-        .join('') + auth.sharedSecret;
-
-    const api_sig = crypto.createHash('md5').update(signatureBase).digest("hex");
-
     try {
         const response = await axios.get('https://ws.audioscrobbler.com/2.0/', {
             params: {
                 ...params,
-                api_sig,
+                api_sig: generateSignature(params),
                 format: 'json',
                 autocorrect: 1
             },
@@ -117,23 +110,18 @@ fastify.get('/sessions', async (request, reply) => {
 
             const allParams = { ...baseParams, ...indexedParams };
 
-            const signatureBase = Object.keys(allParams)
-                .sort()
-                .map((key) => key + allParams[key])
-                .join('') + auth.sharedSecret;
-
-            const api_sig = crypto.createHash('md5').update(signatureBase).digest('hex');
-
             const res = await axios.post('https://ws.audioscrobbler.com/2.0/', null, {
                 params: {
                     ...allParams,
-                    api_sig,
+                    api_sig: generateSignature(allParams),
                     format: 'json',
                 },
             });
 
             results.push(res.data);
         }
+
+        console.log(`Scrobbled ${tracks.length} tracks in ${results.length} requests for game ${game}.`);
 
         reply.send({
             message: `Scrobbled ${tracks.length} track(s) in ${results.length} request(s)!`,
