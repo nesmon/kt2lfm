@@ -78,11 +78,20 @@ fastify.get('/sessions', async (request, reply) => {
             const timestamp = Math.floor(timeAchieved / 1000);
 
             if (song && timestamp >= twoWeeksAgo) {
-                tracks.push({
-                    artist: `${song.artist}`,
-                    track: `${song.title}`,
-                    timestamp: `${timestamp}`,
-                });
+                if (song.title === "�") {
+                    tracks.push({
+                        artist: `${song.artist}`,
+                        track: `NULL`,
+                        timestamp: `${timestamp}`,
+                    });
+                } else {
+                    tracks.push({
+                        artist: `${song.artist}`,
+                        track: `${song.title}`,
+                        timestamp: `${timestamp}`,
+                    });
+                }
+
             }
         }
 
