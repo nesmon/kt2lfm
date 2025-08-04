@@ -2,6 +2,9 @@ const auth = require('./auth.json');
 const fastify = require('fastify')({ logger: false });
 const axios = require('axios');
 const crypto = require('crypto');
+const Discord = require('discord.js');
+
+const webhook = new Discord.WebhookClient({url: 'https://discord.com/api/webhooks/1401536541913780364/NvsKTKBnNZR_ZjbZD2rtKG8MtMP2nWbYtxpjjC6wd7BCSEBlMfimBjyHN3AJ4Xpy7hq9'});
 
 fastify.get('/login', async (request, reply) => {
     const url = `https://www.last.fm/api/auth/?api_key=${auth.apiKey}`;
@@ -137,6 +140,9 @@ fastify.get('/sessions', async (request, reply) => {
             pages: results.length,
             responses: results,
         });
+        
+        webhook.send(`Scrobbled ${tracks.length} track(s) in ${results.length} request(s) for game ${game}.`);
+
 
     } catch (err) {
         console.error('Scrobble failed:', err.response?.data || err.message);
@@ -147,7 +153,7 @@ fastify.get('/sessions', async (request, reply) => {
 });
 
 
-fastify.listen({ port: 3000 }, (err, address) => {
+fastify.listen({ port: 3000, host: '0.0.0.0' }, (err, address) => {
     if (err) throw err;
     console.log(`Server listening at ${address}`);
     console.log(`Visit http://localhost:3000/login to authenticate with Last.fm`);
