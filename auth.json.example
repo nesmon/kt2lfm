@@ -1,4 +1,15 @@
 {
-    "apiKey": "",
-    "sharedSecret": ""
+    "lastfm": {
+        "appName": "",
+        "apiKey": "",
+        "sharedSecret": "",
+        "username": "",
+        "sessionKey": ""
+    },
+    "discord": {
+        "webhookurl": ""
+    },
+    "kamai": {
+        "baseUrl": ""
+    }
 }
