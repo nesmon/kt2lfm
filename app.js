@@ -130,7 +130,7 @@ fastify.get('/sessions', async (request, reply) => {
     }
 });
 
-fastify.listen({ port: 3000 }, (err, address) => {
+fastify.listen({ port: 3000, host: '0.0.0.0' }, (err, address) => {
     if (err) throw err;
     console.log(`Server listening at ${address}`);
     console.log(`Visit http://localhost:3000/login to authenticate with Last.fm`);
