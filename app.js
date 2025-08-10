@@ -3,18 +3,22 @@ const fastify = require('fastify')({ logger: false });
 const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs');
+const Discord = require('discord.js');
+
+const webhook = new Discord.WebhookClient({url: auth.discord.webhookurl});
+
 
 function generateSignature(params) {
     const signatureBase = Object.keys(params)
         .sort()
         .map(key => key + params[key])
-        .join('') + auth.sharedSecret;
+        .join('') + auth.lastfm.sharedSecret;
 
     return crypto.createHash('md5').update(signatureBase).digest('hex');
 }
 
 async function lastfmGet(method, extraParams = {}, debug = false) {
-    const params = { api_key: auth.apiKey, method, ...extraParams };
+    const params = { api_key: auth.lastfm.apiKey, method, ...extraParams };
     const api_sig = generateSignature(params);
 
     if (debug) {
@@ -35,7 +39,7 @@ async function lastfmGet(method, extraParams = {}, debug = false) {
 }
 
 async function lastfmPost(method, extraParams = {}) {
-    const params = { api_key: auth.apiKey, method, ...extraParams };
+    const params = { api_key: auth.lastfm.apiKey, method, ...extraParams };
     const api_sig = generateSignature(params);
 
     const response = await axios.post('https://ws.audioscrobbler.com/2.0/', null, {
@@ -46,7 +50,7 @@ async function lastfmPost(method, extraParams = {}) {
 }
 
 fastify.get('/login', async (_, reply) => {
-    reply.redirect(`https://www.last.fm/api/auth/?api_key=${auth.apiKey}`);
+    reply.redirect(`https://www.last.fm/api/auth/?api_key=${auth.lastfm.apiKey}`);
 });
 
 fastify.get('/callback', async (request, reply) => {
@@ -57,7 +61,7 @@ fastify.get('/callback', async (request, reply) => {
         const data = await lastfmGet('auth.getSession', { token }, true);
         const session = data.session;
 
-        auth.sessionKey = session.key;
+        auth.lastfm.sessionKey = session.key;
         fs.writeFileSync('./auth.json', JSON.stringify(auth, null, 4));
 
         reply.send({ message: 'Authentication successful!', session });
@@ -72,7 +76,7 @@ fastify.get('/sessions', async (request, reply) => {
 
     try {
         const tachiRes = await axios.get(
-            `https://kamai.tachi.ac/api/v1/users/nenes/games/${game}/Single/scores/recent`
+            `${auth.kamai.baseUrl}${game}/Single/scores/recent`
         );
 
         const scores = tachiRes.data.body.scores;
@@ -110,13 +114,17 @@ fastify.get('/sessions', async (request, reply) => {
             });
 
             const res = await lastfmPost('track.scrobble', {
-                sk: auth.sessionKey,
+                sk: auth.lastfm.sessionKey,
                 autocorrect: 1,
                 ...indexedParams
             });
 
             results.push(res);
         }
+        
+        console.log(`Scrobbled ${tracks.length} tracks in ${results.length} requests for game ${game}.`);
+
+        webhook.send(`Scrobbled ${tracks.length} track(s) in ${results.length} request(s) for game ${game}.`);
 
         reply.send({
             message: `Scrobbled ${tracks.length} track(s) in ${results.length} request(s)!`,
