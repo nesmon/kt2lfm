@@ -137,3 +137,4 @@ dist
 
 # kt2lfm ignore
 auth.json
+gameDataSave.json

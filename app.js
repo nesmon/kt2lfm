@@ -1,4 +1,5 @@
 const auth = require('./auth.json');
+const gameDataSave = require('./gameDataSave.json');
 const fastify = require('fastify')({ logger: false });
 const axios = require('axios');
 const crypto = require('crypto');
@@ -6,7 +7,6 @@ const fs = require('fs');
 const Discord = require('discord.js');
 
 const webhook = new Discord.WebhookClient({url: auth.discord.webhookurl});
-
 
 function generateSignature(params) {
     const signatureBase = Object.keys(params)
@@ -49,6 +49,49 @@ async function lastfmPost(method, extraParams = {}) {
     return response.data;
 }
 
+function extractTracksFromDataObj(data) {
+    const scores = data.body.scores;
+    const songs = data.body.songs;
+    const twoWeeksAgo = Date.now() / 1000 - 14 * 24 * 60 * 60;
+
+    return scores
+        .filter(score => {
+            const song = songs.find(s => s.id === score.songID);
+            const timestampSec = Math.floor(Number(score.timeAchieved) / 1000);
+            return song && timestampSec >= twoWeeksAgo;
+        })
+        .map(score => {
+            const song = songs.find(s => s.id === score.songID);
+            return {
+                artist: String(song.artist),
+                track: String(song.title),
+                timestamp: Math.floor(Number(score.timeAchieved) / 1000)
+            };
+        });
+}
+
+function mergeTracksByTimestampObj(data1, data2) {
+    const tracks1 = extractTracksFromDataObj(data1);
+    const tracks2 = extractTracksFromDataObj(data2);
+
+    const timestamps1 = new Set(tracks1.map(t => t.timestamp));
+
+    const similarTracks = tracks2.filter(t2 => {
+        return tracks1.some(t1 => t1.artist === t2.artist && t1.track === t2.track);
+    });
+
+    const filteredTracks = similarTracks.filter(t => !timestamps1.has(t.timestamp));
+
+    const indexedParams = {};
+    filteredTracks.forEach((t, index) => {
+        indexedParams[`artist[${index}]`] = t.artist;
+        indexedParams[`track[${index}]`] = t.track;
+        indexedParams[`timestamp[${index}]`] = t.timestamp;
+    });
+
+    return indexedParams;
+}
+
 fastify.get('/login', async (_, reply) => {
     reply.redirect(`https://www.last.fm/api/auth/?api_key=${auth.lastfm.apiKey}`);
 });
@@ -74,64 +117,106 @@ fastify.get('/callback', async (request, reply) => {
 fastify.get('/sessions', async (request, reply) => {
     const { game } = request.query;
 
+    if (!game) {
+        return reply.code(400).send({ error: 'Missing required query parameter: game' });
+    }
+
     try {
-        const tachiRes = await axios.get(
-            `${auth.kamai.baseUrl}${game}/Single/scores/recent`
-        );
+        // Récupération des nouvelles données distantes (data2)
+        const remoteRes = await axios.get(`${auth.kamai.baseUrl}${game}/Single/scores/recent`);
+        const remoteData = remoteRes.data;
 
-        const scores = tachiRes.data.body.scores;
-        const songs = tachiRes.data.body.songs;
-        const twoWeeksAgo = Date.now() / 1000 - 14 * 24 * 60 * 60;
+        if (!gameDataSave[game]) {
+            // Première fois qu'on a des données pour ce jeu
+            gameDataSave[game] = remoteData;
+            await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
 
-        const tracks = scores
-            .filter(score => {
-                const song = songs.find(s => s.id === score.songID);
-                const timestamp = Math.floor(score.timeAchieved / 1000);
-                return song && timestamp >= twoWeeksAgo;
-            })
-            .map(score => {
-                const song = songs.find(s => s.id === score.songID);
-                return {
-                    artist: song.artist,
-                    track: song.title,
-                    timestamp: Math.floor(score.timeAchieved / 1000)
-                };
+            // Extraire toutes les pistes de remoteData
+            const tracks = extractTracksFromDataObj(remoteData);
+            if (tracks.length === 0) {
+                const noTracksMsg = `No tracks found to scrobble for the first time on game ${game}.`;
+                console.log(noTracksMsg);
+                webhook.send(noTracksMsg);
+                return reply.send({ message: noTracksMsg });
+            }
+
+            // Scrobble en batchs de 50
+            const results = [];
+            for (let i = 0; i < tracks.length; i += 50) {
+                const batch = tracks.slice(i, i + 50);
+                const indexedParams = {};
+                batch.forEach((t, index) => {
+                    indexedParams[`artist[${index}]`] = t.artist;
+                    indexedParams[`track[${index}]`] = t.track;
+                    indexedParams[`timestamp[${index}]`] = t.timestamp;
+                });
+
+                const res = await lastfmPost('track.scrobble', {
+                    sk: auth.lastfm.sessionKey,
+                    autocorrect: 1,
+                    ...indexedParams
+                });
+
+                results.push(res);
+            }
+
+            const firstTimeMsg = `First-time scrobbled ${tracks.length} track(s) in ${results.length} request(s) for game ${game}.`;
+            console.log(firstTimeMsg);
+            webhook.send(firstTimeMsg);
+
+            return reply.send({
+                message: firstTimeMsg,
+                pages: results.length,
+                responses: results,
             });
-
-        if (!tracks.length) {
-            return reply.send({ message: 'No recent tracks to scrobble.' });
         }
 
-        const results = [];
-        for (let i = 0; i < tracks.length; i += 50) {
-            const batch = tracks.slice(i, i + 50);
+        // Sinon, on a déjà des données locales => on fusionne
+        const savedData = gameDataSave[game];
 
-            const indexedParams = {};
-            batch.forEach((t, index) => {
-                indexedParams[`artist[${index}]`] = t.artist;
-                indexedParams[`track[${index}]`] = t.track;
-                indexedParams[`timestamp[${index}]`] = t.timestamp;
-            });
+        // Mise à jour locale avec les données distantes fraîchement récupérées
+        gameDataSave[game] = remoteData;
+        await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
+
+        // Fusion des pistes
+        const indexedParams = mergeTracksByTimestampObj(savedData, remoteData);
+        const totalTracks = Object.keys(indexedParams).filter(k => k.startsWith('artist')).length;
+
+        if (totalTracks === 0) {
+            const noTracksMsg = `No new tracks to scrobble after merging for game ${game}.`;
+            console.log(noTracksMsg);
+            webhook.send(noTracksMsg);
+            return reply.send({ message: noTracksMsg });
+        }
+
+        // Scrobble en batchs de 50
+        const results = [];
+        for (let i = 0; i < totalTracks; i += 50) {
+            const batchParams = {};
+            for (let j = i; j < Math.min(i + 50, totalTracks); j++) {
+                batchParams[`artist[${j - i}]`] = indexedParams[`artist[${j}]`];
+                batchParams[`track[${j - i}]`] = indexedParams[`track[${j}]`];
+                batchParams[`timestamp[${j - i}]`] = indexedParams[`timestamp[${j}]`];
+            }
 
             const res = await lastfmPost('track.scrobble', {
                 sk: auth.lastfm.sessionKey,
                 autocorrect: 1,
-                ...indexedParams
+                ...batchParams
             });
 
             results.push(res);
         }
-        
-        console.log(`Scrobbled ${tracks.length} tracks in ${results.length} requests for game ${game}.`);
 
-        webhook.send(`Scrobbled ${tracks.length} track(s) in ${results.length} request(s) for game ${game}.`);
+        const successMsg = `Scrobbled ${totalTracks} merged track(s) in ${results.length} request(s) for game ${game}.`;
+        console.log(successMsg);
+        webhook.send(successMsg);
 
         reply.send({
-            message: `Scrobbled ${tracks.length} track(s) in ${results.length} request(s)!`,
+            message: successMsg,
             pages: results.length,
             responses: results,
         });
-
     } catch (err) {
         console.error('Scrobble failed:', err.response?.data || err.message);
         reply.code(500).send({ error: err.response?.data || err.message });
