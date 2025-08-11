@@ -122,16 +122,13 @@ fastify.get('/sessions', async (request, reply) => {
     }
 
     try {
-        // Récupération des nouvelles données distantes (data2)
         const remoteRes = await axios.get(`${auth.kamai.baseUrl}${game}/Single/scores/recent`);
         const remoteData = remoteRes.data;
 
         if (!gameDataSave[game]) {
-            // Première fois qu'on a des données pour ce jeu
             gameDataSave[game] = remoteData;
             await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
 
-            // Extraire toutes les pistes de remoteData
             const tracks = extractTracksFromDataObj(remoteData);
             if (tracks.length === 0) {
                 const noTracksMsg = `No tracks found to scrobble for the first time on game ${game}.`;
@@ -140,7 +137,6 @@ fastify.get('/sessions', async (request, reply) => {
                 return reply.send({ message: noTracksMsg });
             }
 
-            // Scrobble en batchs de 50
             const results = [];
             for (let i = 0; i < tracks.length; i += 50) {
                 const batch = tracks.slice(i, i + 50);
@@ -171,14 +167,11 @@ fastify.get('/sessions', async (request, reply) => {
             });
         }
 
-        // Sinon, on a déjà des données locales => on fusionne
         const savedData = gameDataSave[game];
 
-        // Mise à jour locale avec les données distantes fraîchement récupérées
         gameDataSave[game] = remoteData;
         await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
 
-        // Fusion des pistes
         const indexedParams = mergeTracksByTimestampObj(savedData, remoteData);
         const totalTracks = Object.keys(indexedParams).filter(k => k.startsWith('artist')).length;
 
@@ -189,7 +182,6 @@ fastify.get('/sessions', async (request, reply) => {
             return reply.send({ message: noTracksMsg });
         }
 
-        // Scrobble en batchs de 50
         const results = [];
         for (let i = 0; i < totalTracks; i += 50) {
             const batchParams = {};
