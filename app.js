@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const Discord = require('discord.js');
 
-const webhook = new Discord.WebhookClient({url: auth.discord.webhookurl});
+const webhook = new Discord.WebhookClient({ url: auth.discord.webhookurl });
 
 function generateSignature(params) {
     const signatureBase = Object.keys(params)
@@ -62,12 +62,20 @@ function extractTracksFromDataObj(data) {
         })
         .map(score => {
             const song = songs.find(s => s.id === score.songID);
-            return {
-                artist: String(song.artist),
-                track: String(song.title),
-                timestamp: Math.floor(Number(score.timeAchieved) / 1000)
+
+            if (song.title === "�") {
+                return {
+                    artist: String(song.artist),
+                    track: 'NULL',
+                    timestamp: Math.floor(Number(score.timeAchieved) / 1000)
+                };
+            } else {
+                return {
+                    artist: String(song.artist),
+                    track: String(song.title),
+                    timestamp: Math.floor(Number(score.timeAchieved) / 1000)
+                };
             };
-        });
 }
 
 function mergeTracksByTimestampObj(data1, data2) {
