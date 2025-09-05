@@ -76,7 +76,9 @@ function extractTracksFromDataObj(data) {
                     timestamp: Math.floor(Number(score.timeAchieved) / 1000)
                 };
             };
+        });
 }
+
 
 function mergeTracksByTimestampObj(data1, data2) {
     const tracks1 = extractTracksFromDataObj(data1);
