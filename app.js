@@ -62,11 +62,10 @@ function extractTracksFromDataObj(data) {
         })
         .map(score => {
             const song = songs.find(s => s.id === score.songID);
-
             if (song.title === "�") {
                 return {
                     artist: String(song.artist),
-                    track: 'NULL',
+                    track: "NULL",
                     timestamp: Math.floor(Number(score.timeAchieved) / 1000)
                 };
             } else {
@@ -75,27 +74,18 @@ function extractTracksFromDataObj(data) {
                     track: String(song.title),
                     timestamp: Math.floor(Number(score.timeAchieved) / 1000)
                 };
-            };
+            }
         });
 }
 
-function mergeTracksByTimestampObj(data1, data2) {
-    const tracks1 = extractTracksFromDataObj(data1);
-    const tracks2 = extractTracksFromDataObj(data2);
-
-    const timestamps1 = new Set(tracks1.map(t => t.timestamp));
-
-    const similarTracks = tracks2.filter(t2 => {
-        return tracks1.some(t1 => t1.artist === t2.artist && t1.track === t2.track);
-    });
-
-    const filteredTracks = similarTracks.filter(t => !timestamps1.has(t.timestamp));
-
+function mergeTracksByTimestampObj(data, lastTimestamp) {
     const indexedParams = {};
-    filteredTracks.forEach((t, index) => {
-        indexedParams[`artist[${index}]`] = t.artist;
-        indexedParams[`track[${index}]`] = t.track;
-        indexedParams[`timestamp[${index}]`] = t.timestamp;
+    const filteredTracks = data.filter(track => track.timestamp > lastTimestamp);
+
+    filteredTracks.forEach((track, index) => {
+        indexedParams[`artist[${index}]`] = track.artist;
+        indexedParams[`track[${index}]`] = track.track;
+        indexedParams[`timestamp[${index}]`] = track.timestamp;
     });
 
     return indexedParams;
@@ -131,11 +121,13 @@ fastify.get('/sessions', async (request, reply) => {
     }
 
     try {
+        console.log(`${auth.kamai.baseUrl}${game}/Single/scores/recent`)
         const remoteRes = await axios.get(`${auth.kamai.baseUrl}${game}/Single/scores/recent`);
         const remoteData = remoteRes.data;
 
         if (!gameDataSave[game]) {
-            gameDataSave[game] = remoteData;
+
+            gameDataSave[game] = Math.floor(Number(remoteData.body.scores[0].timeAchieved) / 1000);
             await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
 
             const tracks = extractTracksFromDataObj(remoteData);
@@ -176,13 +168,11 @@ fastify.get('/sessions', async (request, reply) => {
             });
         }
 
-        const savedData = gameDataSave[game];
-
-        gameDataSave[game] = remoteData;
-        await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
-
-        const indexedParams = mergeTracksByTimestampObj(savedData, remoteData);
+        const indexedParams = mergeTracksByTimestampObj(extractTracksFromDataObj(remoteData), gameDataSave[game]);
         const totalTracks = Object.keys(indexedParams).filter(k => k.startsWith('artist')).length;
+
+        gameDataSave[game] = Math.floor(Number(remoteData.body.scores[0].timeAchieved) / 1000);
+        await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
 
         if (totalTracks === 0) {
             const noTracksMsg = `No new tracks to scrobble after merging for game ${game}.`;
