@@ -79,7 +79,6 @@ function extractTracksFromDataObj(data) {
         });
 }
 
-
 function mergeTracksByTimestampObj(data1, data2) {
     const tracks1 = extractTracksFromDataObj(data1);
     const tracks2 = extractTracksFromDataObj(data2);
