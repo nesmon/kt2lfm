@@ -1,5 +1,6 @@
 const auth = require('./auth.json');
 const gameDataSave = require('./gameDataSave.json');
+const waccaSongs = require('./waccaSong.js');
 const fastify = require('fastify')({ logger: false });
 const axios = require('axios');
 const crypto = require('crypto');
@@ -118,6 +119,44 @@ fastify.get('/sessions', async (request, reply) => {
 
     if (!game) {
         return reply.code(400).send({ error: 'Missing required query parameter: game' });
+    }
+
+    if (game === "wacca") {
+        let lastPlayed = gameDataSave[game] || 0;
+
+        const waccaAccount = await axios.get(`https://mithical-backend.guegan.de/wacca/user/${auth.mythicalAccesCode}/400`);
+        const waccaPlaylogs = waccaAccount.data.playlog;
+        
+        const results = [];
+        for (let i = 0; i < waccaPlaylogs.length; i += 50) {
+            const batch = waccaPlaylogs.slice(i, i + 50);
+            const indexedParams = {};
+
+            batch.forEach((t, index) => {
+                const song = waccaSongs.find(s => s.id === t.info.music_id);
+
+                const timestamp = Math.floor(new Date(t.info.user_play_date) / 1000);
+
+                if (!song || timestamp <= lastPlayed) return;
+
+                indexedParams[`artist[${index}]`] = song.artist;
+                indexedParams[`track[${index}]`] = song.titleEnglish || song.title;
+                indexedParams[`timestamp[${index}]`] = timestamp;
+            });
+
+            const res = await lastfmPost('track.scrobble', {
+                sk: auth.lastfm.sessionKey,
+                autocorrect: 1,
+                ...indexedParams
+            });
+
+            results.push(res);
+        }
+
+        gameDataSave[game] = Math.floor(Math.floor(new Date(waccaPlaylogs[0].info.user_play_date) / 1000));
+        await fs.promises.writeFile('./gameDataSave.json', JSON.stringify(gameDataSave, null, 4));
+
+        return reply.send({ message: `Scrobbled ${waccaPlaylogs.length} track(s) in ${results.length} request(s) for game ${game}.`, pages: results.length, responses: results });
     }
 
     try {
