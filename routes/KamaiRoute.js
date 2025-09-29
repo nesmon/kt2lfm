@@ -106,7 +106,7 @@ class KamaiRoute {
         const scores = data.body.scores;
         const songs = data.body.songs;
         const twoWeeksAgo = Date.now() / 1000 - 14 * 24 * 60 * 60;
-    
+
         return scores
             .filter(score => {
                 const song = songs.find(s => s.id === score.songID);
@@ -115,32 +115,26 @@ class KamaiRoute {
             })
             .map(score => {
                 const song = songs.find(s => s.id === score.songID);
-                if (song.title === "�") {
-                    return {
-                        artist: String(song.artist),
-                        track: "NULL",
-                        timestamp: Math.floor(Number(score.timeAchieved) / 1000)
-                    };
-                } else {
-                    return {
-                        artist: String(song.artist),
-                        track: String(song.title),
-                        timestamp: Math.floor(Number(score.timeAchieved) / 1000)
-                    };
-                }
+
+                return {
+                    artist: String(song.artist),
+                    track: String(song.title),
+                    timestamp: Math.floor(Number(score.timeAchieved) / 1000)
+                };
+
             });
     }
-    
+
     mergeTracksByTimestampObj(data, lastTimestamp) {
         const indexedParams = {};
         const filteredTracks = data.filter(track => track.timestamp > lastTimestamp);
-    
+
         filteredTracks.forEach((track, index) => {
             indexedParams[`artist[${index}]`] = track.artist;
             indexedParams[`track[${index}]`] = track.track;
             indexedParams[`timestamp[${index}]`] = track.timestamp;
         });
-    
+
         return indexedParams;
     }
 
